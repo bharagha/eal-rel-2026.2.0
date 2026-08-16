@@ -1,0 +1,86 @@
+# SPDX-FileCopyrightText: (C) 2026 Intel Corporation
+# SPDX-License-Identifier: Apache-2.0
+
+# Preselected model registry for the OVMS vs vLLM benchmark tool.
+#
+# model_type:
+#   llm  -> text-only chat/instruct model, benchmarked with a ShareGPT-style
+#           text prompt dataset.
+#   vlm  -> vision-language model, benchmarked with an image+prompt (VQA)
+#           dataset.
+#   moe  -> mixture-of-experts text model, benchmarked the same way as `llm`
+#           (large; expect higher memory/VRAM usage on Core Ultra iGPU).
+#
+# dataset:
+#   name         -> logical dataset identifier used by run_dataset_benchmark.py
+#   hf_dataset   -> Hugging Face dataset id (or vLLM benchmark_serving.py
+#                   built-in dataset name) used to source prompts
+#   split        -> dataset split to sample from
+#
+# served_model_name: name the model is exposed as on the OpenAI-compatible
+#   `/v1/chat/completions` and `/v1/models` endpoints for both engines.
+#
+# server_args: extra CLI/env args passed to the container for each engine.
+#   Placeholders like {model_dir} / {served_model_name} are substituted by
+#   scripts/start_server.sh.
+
+models:
+  llm:
+    hf_repo: microsoft/Phi-4-mini-instruct
+    model_type: llm
+    served_model_name: phi-4-mini-instruct
+    gated: false
+    dataset:
+      name: sharegpt
+      hf_dataset: anon8231489123/ShareGPT_Vicuna_unfiltered
+      split: train
+    ovms:
+      export_extra_args: ["--weight-format", "int8"]
+    vllm:
+      server_extra_args: ["--max-model-len", "4096"]
+
+  vlm:
+    hf_repo: Qwen/Qwen3-VL-8B-Instruct
+    model_type: vlm
+    served_model_name: qwen3-vl-8b-instruct
+    gated: false
+    dataset:
+      name: vqa
+      hf_dataset: HuggingFaceM4/ScienceQA
+      split: test
+    ovms:
+      export_extra_args: ["--weight-format", "int8"]
+    vllm:
+      server_extra_args: ["--max-model-len", "8192", "--trust-remote-code"]
+
+  moe:
+    hf_repo: google/gemma-4-26B-A4B-it
+    model_type: moe
+    served_model_name: gemma-4-26b-a4b-it
+    gated: true
+    dataset:
+      name: sharegpt
+      hf_dataset: anon8231489123/ShareGPT_Vicuna_unfiltered
+      split: train
+    ovms:
+      export_extra_args: ["--weight-format", "int4"]
+    vllm:
+      server_extra_args: ["--max-model-len", "4096", "--trust-remote-code"]
+    notes: >
+      Large MoE model. May exceed Intel Core Ultra integrated GPU memory at
+      default settings; consider int4 weight compression (default above) and
+      reduced --max-model-len / batch size. Requires HUGGING_FACE_HUB_TOKEN
+      with access to the gated repo.
+
+engines:
+  ovms:
+    image: openvino/model_server:2026.3-gpu
+    port: 9000
+    rest_port: 8000
+    health_path: /v1/config
+    models_root: /models
+  vllm:
+    image: intel/vllm:0.21.0-xpu
+    port: 8000
+    health_path: /health
+    models_root: /root/.cache/huggingface
