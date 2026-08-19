@@ -7,7 +7,7 @@
 #   llm  -> text-only chat/instruct model, benchmarked with a ShareGPT-style
 #           text prompt dataset.
 #   vlm  -> vision-language model, benchmarked with an image+prompt (VQA)
-#           dataset.
+#           dataset.openbmb/MiniCPM-V-4_5, Qwen/Qwen3-VL-8B-Instruct
 #   moe  -> mixture-of-experts text model, benchmarked the same way as `llm`
 #           (large; expect higher memory/VRAM usage on Core Ultra iGPU).
 #
@@ -40,16 +40,25 @@ models:
       server_extra_args: ["--max-model-len", "4096"]
 
   vlm:
-    hf_repo: Qwen/Qwen3-VL-8B-Instruct
+    hf_repo: openbmb/MiniCPM-V-4_5
     model_type: vlm
-    served_model_name: qwen3-vl-8b-instruct
+    served_model_name: minicpm-v-4_5
     gated: false
     dataset:
       name: vqa
-      hf_dataset: HuggingFaceM4/ScienceQA
+      hf_dataset: MMMU/MMMU_Pro
+      subset: vision
       split: test
     ovms:
-      export_extra_args: ["--weight-format", "int8"]
+      export_extra_args: ["--weight-format", "int8", "--extra_quantization_params=--trust-remote-code"]
+      # MiniCPM-V-4_5's remote code and optimum-intel's MiniCPMV OpenVINO
+      # export config require transformers <=4.57.6 (which in turn pins
+      # huggingface-hub <1.0). These conflict with the modern OVMS 2026.3
+      # export stack (transformers 5.x / huggingface-hub 1.x), so the export
+      # is run in an isolated, pinned virtualenv (.export-tool/venv-legacy).
+      legacy_export:
+        transformers: "4.57.6"
+        huggingface_hub: "<1.0"
     vllm:
       server_extra_args: ["--max-model-len", "8192", "--trust-remote-code"]
 

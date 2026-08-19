@@ -33,31 +33,50 @@ docker rm -f "${NAME}" >/dev/null 2>&1 || true
 
 log "Starting ${ENGINE} (${IMAGE}) serving '${SERVED_NAME}' on port ${PORT}"
 
+# Forward host proxy settings into the container so it can reach the network.
+PROXY_ARGS=()
+for _var in http_proxy https_proxy no_proxy HTTP_PROXY HTTPS_PROXY NO_PROXY; do
+  if [[ -n "${!_var:-}" ]]; then
+    PROXY_ARGS+=(-e "${_var}=${!_var}")
+  fi
+done
+
 if [[ "${ENGINE}" == "ovms" ]]; then
+  RENDER_GID=$(stat -c "%g" /dev/dri/render* 2>/dev/null | head -n 1)
   docker run -d --name "${NAME}" \
+    --user "$(id -u):$(id -g)" \
     --device /dev/dri \
+    ${RENDER_GID:+--group-add="${RENDER_GID}"} \
     -p "${PORT}:${PORT}" \
-    -v "${MODELS_DIR}:/models:ro" \
+    -v "${MODELS_DIR}:/models" \
+    "${PROXY_ARGS[@]}" \
     "${IMAGE}" \
-    --rest_port "${PORT}" \
-    --model_path "/models/${SERVED_NAME}" \
-    --model_name "${SERVED_NAME}" \
-    --target_device GPU >/dev/null
+    --config_path /models/config.json \
+    --rest_port "${PORT}" >/dev/null
 else
   VLLM_EXTRA_ARGS_JSON=$(yaml_get "models.${MODEL_TYPE}.vllm.server_extra_args" "[]")
   mapfile -t VLLM_EXTRA_ARGS < <(python3 -c "import json,sys; print('\n'.join(json.loads(sys.argv[1])))" "${VLLM_EXTRA_ARGS_JSON}")
   HF_REPO=$(yaml_get "models.${MODEL_TYPE}.hf_repo")
 
+  # oneCCL's ze_fd_manager enumerates GPU device fds by scanning /dev/dri
+  # (including the by-path/ symlink directory). Passing only `--device
+  # /dev/dri` maps the char device nodes but not the by-path directory, so
+  # oneCCL fails with "opendir failed: could not open device directory" during
+  # XPU init. Bind-mount by-path and add the render group so the XPU is usable.
+  RENDER_GID=$(stat -c "%g" /dev/dri/render* 2>/dev/null | head -n 1)
   docker run -d --name "${NAME}" \
     --device /dev/dri \
+    ${RENDER_GID:+--group-add="${RENDER_GID}"} \
+    -v /dev/dri/by-path:/dev/dri/by-path:ro \
+    --shm-size=8g \
     -p "${PORT}:${PORT}" \
     -v "${MODELS_DIR}/hf-cache:/root/.cache/huggingface" \
     -e HUGGING_FACE_HUB_TOKEN="${HUGGING_FACE_HUB_TOKEN:-}" \
+    "${PROXY_ARGS[@]}" \
     "${IMAGE}" \
-    --model "${HF_REPO}" \
+    vllm serve "${HF_REPO}" \
     --served-model-name "${SERVED_NAME}" \
     --port "${PORT}" \
-    --device xpu \
     "${VLLM_EXTRA_ARGS[@]}" >/dev/null
 fi
 
