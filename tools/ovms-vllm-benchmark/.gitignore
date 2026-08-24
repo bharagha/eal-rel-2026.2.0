@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: Apache-2.0
 results/
 model-cache/
-.export-tool/
+.export-tool/venv-legacy/
 .bench-tool/
 __pycache__/
 *.pyc
