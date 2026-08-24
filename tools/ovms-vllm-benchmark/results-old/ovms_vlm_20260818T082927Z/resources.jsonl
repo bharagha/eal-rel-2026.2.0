@@ -1,1 +1,0 @@
-{"timestamp": "2026-08-18T08:29:38.747Z", "docker_stats": {"BlockIO": "5.46GB / 0B", "CPUPerc": "143.91%", "Container": "ovms-vllm-bench-ovms", "ID": "2395651308ce", "MemPerc": "9.65%", "MemUsage": "5.989GiB / 62.09GiB", "Name": "ovms-vllm-bench-ovms", "NetIO": "3.38kB / 905B", "PIDs": "211"}, "gpu": null}
