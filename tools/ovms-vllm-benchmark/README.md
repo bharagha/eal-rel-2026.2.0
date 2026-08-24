@@ -81,7 +81,7 @@ Non-interactive usage:
    and resource metrics into `results/<engine>_<model>_<timestamp>/summary.json`
    and a human-readable `summary.txt`.
 6. **Cleanup** — stops and removes the server container unless `--keep` is
-   passed.
+   passed, then deactivates and deletes the tool's virtualenv (`venv/`).
 
 ## Results layout
 

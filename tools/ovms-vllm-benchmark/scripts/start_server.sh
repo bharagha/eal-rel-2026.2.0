@@ -83,9 +83,32 @@ fi
 BASE_URL="http://localhost:${PORT}"
 log "Waiting for ${ENGINE} to become ready at ${BASE_URL}${HEALTH_PATH} ..."
 
+# ovms serves the OpenAI-compatible endpoints as soon as its HTTP server is up,
+# but the /v1/config endpoint responds (and /health-style checks pass) well
+# before a large model has finished loading onto the GPU. Firing the benchmark
+# in that window yields "Not Found" (404) because the servable is not yet
+# AVAILABLE. So for ovms we additionally poll /v1/config until the specific
+# served model reports state AVAILABLE.
+model_ready() {
+  if [[ "${ENGINE}" != "ovms" ]]; then
+    return 0
+  fi
+  curl -fsS "${BASE_URL}/v1/config" 2>/dev/null | \
+    SERVED_NAME="${SERVED_NAME}" python3 -c '
+import json, os, sys
+name = os.environ["SERVED_NAME"]
+try:
+    data = json.load(sys.stdin)
+except Exception:
+    sys.exit(1)
+status = data.get(name, {}).get("model_version_status", [])
+sys.exit(0 if any(s.get("state") == "AVAILABLE" for s in status) else 1)
+'
+}
+
 READY=0
 for _ in $(seq 1 90); do
-  if curl -fsS "${BASE_URL}${HEALTH_PATH}" >/dev/null 2>&1; then
+  if curl -fsS "${BASE_URL}${HEALTH_PATH}" >/dev/null 2>&1 && model_ready; then
     READY=1
     break
   fi

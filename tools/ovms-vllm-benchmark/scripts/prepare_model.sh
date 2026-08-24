@@ -75,6 +75,17 @@ if grep -q -- "--weight-format {} {} --trust-remote-code {}\".format(source_mode
   sed -i 's/--weight-format {} {} --trust-remote-code {}"\.format(source_model/--weight-format {} {} {}".format(source_model/' "${EXPORT_SCRIPT}"
 fi
 
+# Pre-converted OpenVINO repos (source_model starting with "OpenVINO/") are
+# pulled with the Hugging Face CLI. Upstream export_model.py still shells out to
+# `huggingface-cli download`, which recent huggingface-hub releases have turned
+# into a deprecated no-op that prints a hint and exits non-zero, making the
+# export fail with `ValueError: ('Failed to download llm model', ...)`. Rewrite
+# it to the supported `hf download` entrypoint. Idempotent.
+if grep -q 'huggingface-cli download' "${EXPORT_SCRIPT}"; then
+  log "Patching export_model.py: using 'hf download' instead of deprecated 'huggingface-cli download'"
+  sed -i 's/huggingface-cli download/hf download/g' "${EXPORT_SCRIPT}"
+fi
+
 # Some models cannot be exported with the modern OVMS 2026.3 export stack
 # (transformers 5.x / huggingface-hub 1.x). For those, config/models.yaml sets
 # `ovms.legacy_export.{transformers,huggingface_hub}` and the export runs in an
@@ -86,8 +97,17 @@ if [[ -n "${LEGACY_TF}" ]]; then
   LEGACY_VENV="${EXPORT_SCRIPT_DIR}/venv-legacy"
   MARKER="${LEGACY_VENV}/.pins-${LEGACY_TF}-${LEGACY_HFHUB//[<>=]/_}"
   if [[ ! -f "${MARKER}" ]]; then
+    # The legacy venv is pin-specific. A venv left over from a different model
+    # (or a previous pin set) may already contain an incompatible transformers
+    # (e.g. 5.x), and pip won't necessarily downgrade it cleanly. Since the
+    # matching marker is absent, rebuild the venv from scratch so the requested
+    # pins are the only ones installed.
+    if [[ -d "${LEGACY_VENV}" ]]; then
+      log "Rebuilding stale export venv (requested pins transformers==${LEGACY_TF}, huggingface-hub${LEGACY_HFHUB} not present)"
+      rm -rf "${LEGACY_VENV}"
+    fi
     log "Setting up isolated export venv for ${SERVED_NAME} (transformers==${LEGACY_TF}, huggingface-hub${LEGACY_HFHUB})"
-    [[ -d "${LEGACY_VENV}" ]] || python3 -m venv "${LEGACY_VENV}"
+    python3 -m venv "${LEGACY_VENV}"
     "${LEGACY_VENV}/bin/python" -m pip install --quiet --upgrade pip
     if [[ -f "${EXPORT_SCRIPT_DIR}/requirements.txt" ]]; then
       "${LEGACY_VENV}/bin/python" -m pip install --quiet -r "${EXPORT_SCRIPT_DIR}/requirements.txt"
@@ -107,6 +127,11 @@ else
   if [[ -f "${EXPORT_SCRIPT_DIR}/requirements.txt" ]]; then
     pip3 install --quiet -r "${EXPORT_SCRIPT_DIR}/requirements.txt"
   fi
+
+  # The export-tool requirements pin typer<0.12 for kokoro TTS, but
+  # huggingface_hub>=1.0 needs typer>=0.12 for its CLI. Restore compatibility
+  # since text_generation export does not use kokoro.
+  pip3 install --quiet "typer>=0.15"
 
   # The pinned optimum-intel dev build declares `transformers<5.1` in its package
   # metadata, but its OpenVINO export code (the gemma4 export configs) actually

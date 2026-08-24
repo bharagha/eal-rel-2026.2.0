@@ -1,0 +1,33 @@
+{
+  "engine": "ovms",
+  "model_type": "llm",
+  "performance": {
+    "mean_ttft_ms": 2104.6773648000053,
+    "median_ttft_ms": 2107.276152000026,
+    "p99_ttft_ms": 2161.300748200002,
+    "mean_tpot_ms": 58.02969316673563,
+    "median_tpot_ms": 58.025802497409195,
+    "p99_tpot_ms": 58.65449160058815,
+    "mean_itl_ms": 67.73169029253982,
+    "request_throughput": 0.10922649224474414,
+    "output_throughput": 30.801870813017846,
+    "completed": 5,
+    "duration": 45.776440287000014
+  },
+  "resources": {
+    "cpu_percent": {
+      "min": 85.33,
+      "max": 1140.52,
+      "mean": 246.99272727272728,
+      "samples": 22
+    },
+    "mem_percent": {
+      "min": 4.11,
+      "max": 18.3,
+      "mean": 9.625,
+      "samples": 22
+    },
+    "gpu_util_percent": null,
+    "sample_count": 22
+  }
+}

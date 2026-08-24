@@ -54,6 +54,11 @@ def main() -> int:
 
     if isinstance(value, (dict, list)):
         print(json.dumps(value))
+    elif isinstance(value, bool):
+        # Emit lowercase true/false so shell string comparisons (e.g. the gated
+        # check in prepare_model.sh: [[ "${GATED}" == "true" ]]) work as
+        # expected, instead of Python's capitalized True/False.
+        print("true" if value else "false")
     else:
         print(value)
     return 0

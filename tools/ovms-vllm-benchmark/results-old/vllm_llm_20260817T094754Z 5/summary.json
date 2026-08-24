@@ -1,0 +1,33 @@
+{
+  "engine": "vllm",
+  "model_type": "llm",
+  "performance": {
+    "mean_ttft_ms": 813.5860841721296,
+    "median_ttft_ms": 828.0142908915877,
+    "p99_ttft_ms": 829.9656887724996,
+    "mean_tpot_ms": 145.500460904573,
+    "median_tpot_ms": 141.92863743887355,
+    "p99_tpot_ms": 160.48058121442273,
+    "mean_itl_ms": 139.85551291376055,
+    "request_throughput": 0.04845523411135347,
+    "output_throughput": 13.712831253513032,
+    "completed": 5,
+    "duration": 103.18802688084543
+  },
+  "resources": {
+    "cpu_percent": {
+      "min": 0.84,
+      "max": 102.26,
+      "mean": 91.27073529411764,
+      "samples": 68
+    },
+    "mem_percent": {
+      "min": 3.29,
+      "max": 5.95,
+      "mean": 5.41735294117647,
+      "samples": 68
+    },
+    "gpu_util_percent": null,
+    "sample_count": 68
+  }
+}

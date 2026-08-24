@@ -87,6 +87,14 @@ cleanup() {
   if [[ "${KEEP}" -eq 0 ]]; then
     "${TOOL_ROOT}/scripts/stop_server.sh" "${ENGINE}" || true
   fi
+  if [[ -n "${VIRTUAL_ENV:-}" ]] && command -v deactivate >/dev/null 2>&1; then
+    log "Deactivating virtualenv"
+    deactivate || true
+  fi
+  # if [[ "${KEEP}" -eq 0 && -d "${TOOL_ROOT}/venv" ]]; then
+  #   log "Removing virtualenv (${TOOL_ROOT}/venv)"
+  #   rm -rf "${TOOL_ROOT}/venv" || true
+  # fi
 }
 trap cleanup EXIT
 

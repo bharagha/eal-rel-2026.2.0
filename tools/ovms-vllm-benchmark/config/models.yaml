@@ -9,7 +9,7 @@
 #   vlm  -> vision-language model, benchmarked with an image+prompt (VQA)
 #           dataset.openbmb/MiniCPM-V-4_5, Qwen/Qwen3-VL-8B-Instruct
 #   moe  -> mixture-of-experts text model, benchmarked the same way as `llm`
-#           (large; expect higher memory/VRAM usage on Core Ultra iGPU).
+#           (large; expect higher memory/VRAM usage on Core Ultra iGPU). google/gemma-4-26B-A4B-it, OpenVINO/gemma-4-26b-a4b-it-int4-ov
 #
 # dataset:
 #   name         -> logical dataset identifier used by run_dataset_benchmark.py
@@ -35,14 +35,23 @@ models:
       hf_dataset: anon8231489123/ShareGPT_Vicuna_unfiltered
       split: train
     ovms:
-      export_extra_args: ["--weight-format", "int8"]
+      export_extra_args: ["--weight-format", "int4"]
+      # Phi-4-mini (phi3) config cannot be loaded by the modern OVMS 2026.3
+      # export stack: transformers 5.5's RoPE standardization crashes with
+      # `'PreTrainedConfig' object has no attribute 'max_position_embeddings'`.
+      # optimum-intel's export configs otherwise force transformers >=5.5 for
+      # gemma4, so pin an older, phi3-compatible transformers and run the
+      # export in an isolated, pinned virtualenv (.export-tool/venv-legacy). "5.0.0" ">=1.0,<2.0"
+      legacy_export:
+        transformers: "4.57.6"
+        huggingface_hub: "<1.0"
     vllm:
       server_extra_args: ["--max-model-len", "4096"]
 
   vlm:
-    hf_repo: openbmb/MiniCPM-V-4_5
+    hf_repo: Qwen/Qwen3-VL-8B-Instruct
     model_type: vlm
-    served_model_name: minicpm-v-4_5
+    served_model_name: qwen3-vl-8b-instruct
     gated: false
     dataset:
       name: vqa
@@ -66,7 +75,7 @@ models:
     hf_repo: google/gemma-4-26B-A4B-it
     model_type: moe
     served_model_name: gemma-4-26b-a4b-it
-    gated: true
+    gated: false
     dataset:
       name: sharegpt
       hf_dataset: anon8231489123/ShareGPT_Vicuna_unfiltered
@@ -78,8 +87,8 @@ models:
     notes: >
       Large MoE model. May exceed Intel Core Ultra integrated GPU memory at
       default settings; consider int4 weight compression (default above) and
-      reduced --max-model-len / batch size. Requires HUGGING_FACE_HUB_TOKEN
-      with access to the gated repo.
+      reduced --max-model-len / batch size. This repo ships pre-converted
+      OpenVINO IR (public); no Hugging Face token is required.
 
 engines:
   ovms:

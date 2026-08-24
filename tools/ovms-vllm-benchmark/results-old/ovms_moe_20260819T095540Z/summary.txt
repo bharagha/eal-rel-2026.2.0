@@ -1,0 +1,13 @@
+Engine:      ovms
+Model type:  moe
+--- Performance ---
+  mean_ttft_ms          : 213.65736100000277
+  mean_tpot_ms          : 38.77458640170936
+  mean_itl_ms           : 42.00591480555557
+  request_throughput    : 0.21048830133637192
+  output_throughput     : 24.837619557691887
+  completed             : 1
+--- Resources ---
+  cpu_percent           : min=0.1 mean=53.4 max=103.2 (n=7)
+  mem_percent           : min=4.3 mean=4.3 max=4.3 (n=7)
+  gpu_util_percent      : n/a

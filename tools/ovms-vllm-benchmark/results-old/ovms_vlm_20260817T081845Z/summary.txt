@@ -1,0 +1,13 @@
+Engine:      ovms
+Model type:  vlm
+--- Performance ---
+  mean_ttft_ms          : 78227.5843238458
+  mean_tpot_ms          : 109.30388005758364
+  mean_itl_ms           : 113.78363195470854
+  request_throughput    : 0.01085501833693454
+  output_throughput     : 1.3894423471276212
+  completed             : 1
+--- Resources ---
+  cpu_percent           : min=0.1 mean=81.1 max=338.9 (n=86)
+  mem_percent           : min=3.3 mean=5.8 max=13.2 (n=86)
+  gpu_util_percent      : n/a

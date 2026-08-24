@@ -14,12 +14,33 @@ CONFIG_FILE="${CONFIG_FILE:-${TOOL_ROOT}/config/models.yaml}"
 RESULTS_DIR="${RESULTS_DIR:-${TOOL_ROOT}/results}"
 MODELS_DIR="${MODELS_DIR:-${TOOL_ROOT}/model-cache}"
 
-# Activate the tool's virtualenv (if present) so python3/pip3/huggingface-cli
-# resolve to the pinned benchmark dependencies rather than the system ones.
-if [[ -z "${VIRTUAL_ENV:-}" && -f "${TOOL_ROOT}/venv/bin/activate" ]]; then
-  # shellcheck disable=SC1091
-  source "${TOOL_ROOT}/venv/bin/activate"
-fi
+# Activate the tool's virtualenv so python3/pip3/huggingface-cli resolve to the
+# pinned benchmark dependencies rather than the system ones. The venv is
+# bootstrapped (created + requirements installed) on first use if missing, so
+# it is safe for the benchmark cleanup step to delete it between runs.
+ensure_venv() {
+  if [[ -n "${VIRTUAL_ENV:-}" ]]; then
+    return 0
+  fi
+  local venv_dir="${TOOL_ROOT}/venv"
+  if [[ ! -f "${venv_dir}/bin/activate" ]]; then
+    command -v python3 >/dev/null 2>&1 || die "required command not found: python3"
+    echo "[$(date '+%Y-%m-%d %H:%M:%S')] Creating virtualenv at ${venv_dir}" >&2
+    python3 -m venv "${venv_dir}" || die "failed to create virtualenv at ${venv_dir}"
+    # shellcheck disable=SC1091
+    source "${venv_dir}/bin/activate"
+    python3 -m pip install --quiet --upgrade pip
+    if [[ -f "${TOOL_ROOT}/requirements.txt" ]]; then
+      echo "[$(date '+%Y-%m-%d %H:%M:%S')] Installing requirements into virtualenv" >&2
+      python3 -m pip install --quiet -r "${TOOL_ROOT}/requirements.txt" \
+        || die "failed to install requirements into ${venv_dir}"
+    fi
+  else
+    # shellcheck disable=SC1091
+    source "${venv_dir}/bin/activate"
+  fi
+}
+
 
 log() {
   echo "[$(date '+%Y-%m-%d %H:%M:%S')] $*" >&2
@@ -49,3 +70,6 @@ require_cmd() {
 container_name() {
   echo "ovms-vllm-bench-$1"
 }
+
+# Bootstrap/activate the virtualenv now that log/die helpers are defined.
+ensure_venv

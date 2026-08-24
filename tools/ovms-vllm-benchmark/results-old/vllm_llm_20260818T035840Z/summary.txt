@@ -1,0 +1,13 @@
+Engine:      vllm
+Model type:  llm
+--- Performance ---
+  mean_ttft_ms          : 244.58409400000392
+  mean_tpot_ms          : 110.80066126271167
+  mean_itl_ms           : 111.74754618803443
+  request_throughput    : 0.07507668863769645
+  output_throughput     : 8.934125947885878
+  completed             : 1
+--- Resources ---
+  cpu_percent           : min=0.8 mean=89.5 max=102.4 (n=36)
+  mem_percent           : min=4.7 mean=5.7 max=6.1 (n=36)
+  gpu_util_percent      : n/a
