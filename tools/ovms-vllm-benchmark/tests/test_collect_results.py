@@ -78,6 +78,26 @@ def test_build_summary_extracts_known_performance_keys() -> None:
     assert "unrelated_field" not in summary["performance"]
 
 
+def test_build_summary_includes_precision_when_given() -> None:
+    benchmark = {"mean_ttft_ms": 1.0}
+    resources = {"cpu_percent": None, "mem_percent": None, "gpu_util_percent": None, "sample_count": 0}
+
+    summary = collect_results.build_summary("vllm", "llm", benchmark, resources, precision="int4")
+
+    assert summary["precision"] == "int4"
+    table = collect_results.render_table(summary)
+    assert "int4" in table
+
+
+def test_build_summary_omits_precision_when_not_given() -> None:
+    benchmark = {"mean_ttft_ms": 1.0}
+    resources = {"cpu_percent": None, "mem_percent": None, "gpu_util_percent": None, "sample_count": 0}
+
+    summary = collect_results.build_summary("ovms", "llm", benchmark, resources)
+
+    assert "precision" not in summary
+
+
 def test_render_table_includes_engine_and_metrics() -> None:
     summary = {
         "engine": "vllm",

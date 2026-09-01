@@ -23,6 +23,19 @@
 # server_args: extra CLI/env args passed to the container for each engine.
 #   Placeholders like {model_dir} / {served_model_name} are substituted by
 #   scripts/start_server.sh.
+#
+# vllm.precisions: map of precision name -> { hf_repo, server_extra_args }.
+#   Each precision points at its own Hugging Face repo (a separate
+#   pre-quantized checkpoint for lower precisions, not a runtime quantize
+#   flag applied to the bf16 repo) plus any extra vLLM server args needed to
+#   serve it. vllm.default_precision selects which one is used when
+#   --precision is not passed. This only affects the vLLM serving path;
+#   the ovms: block (weight-format export args) is independent and unrelated
+#   to this selector.
+#   - bf16: full-precision baseline, required for every model entry.
+#   - int4: w4a16 (4-bit weights / 16-bit activations) quantized checkpoint.
+#           Only defined where a quantized repo is available; requesting
+#           --precision int4 for a model without an int4 entry is an error.
 
 models:
   llm:
@@ -37,7 +50,16 @@ models:
     ovms:
       export_extra_args: ["--weight-format", "int8"]
     vllm:
-      server_extra_args: ["--max-model-len", "4096"]
+      default_precision: bf16
+      precisions:
+        bf16:
+          hf_repo: microsoft/Phi-4-mini-instruct
+          server_extra_args: ["--max-model-len", "4096"]
+        int4:
+          # TODO: set the actual w4a16 (int4) quantized Hugging Face repo id
+          # for Phi-4-mini-instruct before using --precision int4 with vLLM.
+          hf_repo: "TODO-set-w4a16-quantized-repo-for-phi-4-mini-instruct"
+          server_extra_args: ["--max-model-len", "4096", "--quantization", "compressed-tensors"]
 
   vlm:
     hf_repo: Qwen/Qwen3-VL-8B-Instruct
@@ -51,7 +73,11 @@ models:
     ovms:
       export_extra_args: ["--weight-format", "int8"]
     vllm:
-      server_extra_args: ["--max-model-len", "8192", "--trust-remote-code"]
+      default_precision: bf16
+      precisions:
+        bf16:
+          hf_repo: Qwen/Qwen3-VL-8B-Instruct
+          server_extra_args: ["--max-model-len", "8192", "--trust-remote-code"]
 
   moe:
     hf_repo: google/gemma-4-26B-A4B-it
@@ -65,7 +91,11 @@ models:
     ovms:
       export_extra_args: ["--weight-format", "int4"]
     vllm:
-      server_extra_args: ["--max-model-len", "4096", "--trust-remote-code"]
+      default_precision: bf16
+      precisions:
+        bf16:
+          hf_repo: google/gemma-4-26B-A4B-it
+          server_extra_args: ["--max-model-len", "4096", "--trust-remote-code"]
     notes: >
       Large MoE model. May exceed Intel Core Ultra integrated GPU memory at
       default settings; consider int4 weight compression (default above) and

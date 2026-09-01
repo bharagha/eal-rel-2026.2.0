@@ -22,14 +22,17 @@ captures both performance (TTFT/TPOT/throughput) and resource usage
 
 ## Preselected models
 
-| Type | Hugging Face repo | Dataset |
-|------|--------------------|---------|
-| LLM  | `microsoft/Phi-4-mini-instruct` | ShareGPT-style text prompts |
-| VLM  | `Qwen/Qwen3-VL-8B-Instruct` | VQA-style image+prompt dataset |
-| MoE  | `google/gemma-4-26B-A4B-it` (gated) | ShareGPT-style text prompts |
+| Type | Hugging Face repo | Dataset | vLLM precisions |
+|------|--------------------|---------|------------------|
+| LLM  | `microsoft/Phi-4-mini-instruct` | ShareGPT-style text prompts | `bf16`, `int4` (w4a16) |
+| VLM  | `Qwen/Qwen3-VL-8B-Instruct` | VQA-style image+prompt dataset | `bf16` |
+| MoE  | `google/gemma-4-26B-A4B-it` (gated) | ShareGPT-style text prompts | `bf16` |
 
 See [`config/models.yaml`](config/models.yaml) for exact dataset/model
-metadata and per-engine serving arguments.
+metadata, per-precision Hugging Face repos, and per-engine serving arguments.
+The `int4` (w4a16) repo for Phi-4-mini-instruct is currently a placeholder —
+fill in `models.llm.vllm.precisions.int4.hf_repo` with an actual quantized
+checkpoint before using `--precision int4`.
 
 ## Prerequisites
 
@@ -55,13 +58,27 @@ export HUGGING_FACE_HUB_TOKEN=hf_xxx   # only required for gated models
 You will be prompted to choose:
 1. The serving engine: **OVMS** or **vLLM**
 2. The preselected model: **LLM**, **VLM**, or **MoE**
+3. (vLLM only) The serving precision: **bf16** (default) or **int4** (w4a16)
 
 Non-interactive usage:
 
 ```bash
 ./run_benchmark.sh --engine ovms --model-type llm --num-prompts 50
+./run_benchmark.sh --engine vllm --model-type llm --precision int4
 ./run_benchmark.sh --engine vllm --model-type vlm --keep   # leaves the server running afterwards
 ```
+
+### Precision (vLLM only)
+
+`--precision bf16|int4` selects which entry under `models.<type>.vllm.precisions.*`
+in `config/models.yaml` is served. `int4` means w4a16 (4-bit weights, 16-bit
+activations) and points at a separate, pre-quantized Hugging Face repo for
+that model/precision — it is **not** a runtime quantize flag applied to the
+bf16 checkpoint. `--precision` only applies to the `vllm` engine and has no
+effect on OVMS, which continues to be controlled solely by its existing
+`ovms.export_extra_args` (`--weight-format`) in the config, unrelated to this
+selector. Currently only the `llm` (Phi-4-mini-instruct) entry defines an
+`int4` variant; the VLM/MoE entries only define `bf16`.
 
 ## What it does
 

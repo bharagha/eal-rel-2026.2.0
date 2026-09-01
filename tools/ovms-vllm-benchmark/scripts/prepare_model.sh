@@ -6,7 +6,12 @@
 # ready for serving by either engine.
 #
 # Usage:
-#   scripts/prepare_model.sh <ovms|vllm> <llm|vlm|moe>
+#   scripts/prepare_model.sh <ovms|vllm> <llm|vlm|moe> [precision]
+#
+# [precision] only applies to the vLLM path (bf16|int4, default bf16) and
+# selects which entry under models.<type>.vllm.precisions.* to download from;
+# it is ignored for the OVMS path, which is unaffected by this parameter and
+# keeps using models.<type>.hf_repo / ovms.export_extra_args as before.
 #
 # Env vars:
 #   HUGGING_FACE_HUB_TOKEN  - required for gated models (e.g. the MoE entry).
@@ -18,31 +23,39 @@
 set -euo pipefail
 source "$(dirname "${BASH_SOURCE[0]}")/lib/common.sh"
 
-ENGINE=${1:?Usage: $0 <ovms|vllm> <llm|vlm|moe>}
-MODEL_TYPE=${2:?Usage: $0 <ovms|vllm> <llm|vlm|moe>}
+ENGINE=${1:?Usage: $0 <ovms|vllm> <llm|vlm|moe> [precision]}
+MODEL_TYPE=${2:?Usage: $0 <ovms|vllm> <llm|vlm|moe> [precision]}
+PRECISION=${3:-bf16}
 OVMS_EXPORT_MODEL_REF=${OVMS_EXPORT_MODEL_REF:-releases/2026/3}
 
 [[ "${ENGINE}" == "ovms" || "${ENGINE}" == "vllm" ]] || die "engine must be 'ovms' or 'vllm', got: ${ENGINE}"
 
-HF_REPO=$(yaml_get "models.${MODEL_TYPE}.hf_repo")
 SERVED_NAME=$(yaml_get "models.${MODEL_TYPE}.served_model_name")
 GATED=$(yaml_get "models.${MODEL_TYPE}.gated" "false")
 
-if [[ "${GATED}" == "true" && -z "${HUGGING_FACE_HUB_TOKEN:-}" ]]; then
-  die "model ${HF_REPO} is gated; set HUGGING_FACE_HUB_TOKEN before running"
-fi
-
-mkdir -p "${MODELS_DIR}"
-
 if [[ "${ENGINE}" == "vllm" ]]; then
   require_cmd huggingface-cli
-  log "Downloading ${HF_REPO} into HF cache for vLLM serving (served as '${SERVED_NAME}')"
+  HF_REPO=$(yaml_get "models.${MODEL_TYPE}.vllm.precisions.${PRECISION}.hf_repo")
+  if [[ "${GATED}" == "true" && -z "${HUGGING_FACE_HUB_TOKEN:-}" ]]; then
+    die "model ${HF_REPO} is gated; set HUGGING_FACE_HUB_TOKEN before running"
+  fi
+  mkdir -p "${MODELS_DIR}"
+  log "Downloading ${HF_REPO} (precision: ${PRECISION}) into HF cache for vLLM serving (served as '${SERVED_NAME}')"
   huggingface-cli download "${HF_REPO}" \
     --cache-dir "${MODELS_DIR}/hf-cache" \
     ${HUGGING_FACE_HUB_TOKEN:+--token "${HUGGING_FACE_HUB_TOKEN}"}
   log "Download complete: ${MODELS_DIR}/hf-cache"
   exit 0
 fi
+
+# --- OVMS path (unaffected by --precision) ---
+HF_REPO=$(yaml_get "models.${MODEL_TYPE}.hf_repo")
+
+if [[ "${GATED}" == "true" && -z "${HUGGING_FACE_HUB_TOKEN:-}" ]]; then
+  die "model ${HF_REPO} is gated; set HUGGING_FACE_HUB_TOKEN before running"
+fi
+
+mkdir -p "${MODELS_DIR}"
 
 # --- OVMS path: download export_model.py (pinned) and convert to IR ---
 require_cmd python3

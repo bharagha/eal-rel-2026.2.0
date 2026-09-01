@@ -50,6 +50,36 @@ def test_engine_entry_has_required_fields(config: dict, engine: str) -> None:
     assert engine_cfg["health_path"]
 
 
+@pytest.mark.parametrize("model_type", ["llm", "vlm", "moe"])
+def test_vllm_precisions_bf16_required(config: dict, model_type: str) -> None:
+    """Every model must define at least a bf16 vLLM precision entry."""
+    vllm_cfg = config["models"][model_type]["vllm"]
+    assert vllm_cfg["default_precision"] == "bf16"
+    bf16_cfg = vllm_cfg["precisions"]["bf16"]
+    assert bf16_cfg["hf_repo"]
+    assert isinstance(bf16_cfg["server_extra_args"], list)
+
+
+def test_vllm_int4_precision_defined_for_llm_only(config: dict) -> None:
+    """int4 (w4a16) is only defined for the llm (Phi-4-mini-instruct) entry."""
+    llm_precisions = config["models"]["llm"]["vllm"]["precisions"]
+    assert "int4" in llm_precisions
+    assert llm_precisions["int4"]["hf_repo"]
+    assert isinstance(llm_precisions["int4"]["server_extra_args"], list)
+
+    for model_type in ("vlm", "moe"):
+        assert "int4" not in config["models"][model_type]["vllm"]["precisions"]
+
+
+def test_ovms_export_extra_args_unaffected_by_precision(config: dict) -> None:
+    """OVMS weight-format export args must stay independent of the new
+    vLLM precision selector (llm=int8, moe=int4, both unrelated to
+    --precision)."""
+    assert config["models"]["llm"]["ovms"]["export_extra_args"] == ["--weight-format", "int8"]
+    assert config["models"]["vlm"]["ovms"]["export_extra_args"] == ["--weight-format", "int8"]
+    assert config["models"]["moe"]["ovms"]["export_extra_args"] == ["--weight-format", "int4"]
+
+
 def test_yaml_get_script_returns_scalar() -> None:
     result = subprocess.run(
         [sys.executable, str(YAML_GET_SCRIPT), str(CONFIG_PATH), "models.llm.hf_repo"],

@@ -98,7 +98,7 @@ def summarize_resources(samples: list[dict]) -> dict:
     }
 
 
-def build_summary(engine: str, model_type: str, benchmark: dict, resources: dict) -> dict:
+def build_summary(engine: str, model_type: str, benchmark: dict, resources: dict, precision: str | None = None) -> dict:
     perf_keys = (
         "mean_ttft_ms",
         "median_ttft_ms",
@@ -113,12 +113,17 @@ def build_summary(engine: str, model_type: str, benchmark: dict, resources: dict
         "duration",
     )
     performance = {k: benchmark[k] for k in perf_keys if k in benchmark}
-    return {
+    summary = {
         "engine": engine,
         "model_type": model_type,
         "performance": performance,
         "resources": resources,
     }
+    # precision is informational only (vLLM-specific selector); omitted when
+    # not provided (e.g. OVMS runs, where it doesn't apply).
+    if precision:
+        summary["precision"] = precision
+    return summary
 
 
 def render_table(summary: dict) -> str:
@@ -127,8 +132,10 @@ def render_table(summary: dict) -> str:
     lines = [
         f"Engine:      {summary['engine']}",
         f"Model type:  {summary['model_type']}",
-        "--- Performance ---",
     ]
+    if summary.get("precision"):
+        lines.append(f"Precision:   {summary['precision']}")
+    lines.append("--- Performance ---")
     for key in ("mean_ttft_ms", "mean_tpot_ms", "mean_itl_ms", "request_throughput", "output_throughput", "completed"):
         if key in perf:
             lines.append(f"  {key:<22}: {perf[key]}")
@@ -151,13 +158,18 @@ def main() -> int:
     parser.add_argument("--benchmark-json", type=Path, required=True)
     parser.add_argument("--resources-jsonl", type=Path, required=True)
     parser.add_argument("--output", type=Path, required=True)
+    parser.add_argument(
+        "--precision",
+        default=None,
+        help="vLLM serving precision used for this run (e.g. bf16, int4); informational, ignored for OVMS",
+    )
     args = parser.parse_args()
 
     benchmark = load_benchmark(args.benchmark_json)
     resource_samples = load_resource_samples(args.resources_jsonl)
     resources = summarize_resources(resource_samples)
 
-    summary = build_summary(args.engine, args.model_type, benchmark, resources)
+    summary = build_summary(args.engine, args.model_type, benchmark, resources, args.precision)
 
     args.output.parent.mkdir(parents=True, exist_ok=True)
     with args.output.open("w", encoding="utf-8") as fh:
