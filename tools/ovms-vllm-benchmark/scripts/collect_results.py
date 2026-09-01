@@ -119,8 +119,8 @@ def build_summary(engine: str, model_type: str, benchmark: dict, resources: dict
         "performance": performance,
         "resources": resources,
     }
-    # precision is informational only (vLLM-specific selector); omitted when
-    # not provided (e.g. OVMS runs, where it doesn't apply).
+    # precision is now populated for both engines (bf16/int4 supported by
+    # both OVMS and vLLM); omitted only if the caller doesn't pass one.
     if precision:
         summary["precision"] = precision
     return summary
@@ -154,14 +154,14 @@ def render_table(summary: dict) -> str:
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--engine", required=True, choices=["ovms", "vllm"])
-    parser.add_argument("--model-type", required=True, choices=["llm", "vlm", "moe"])
+    parser.add_argument("--model-type", required=True, choices=["llm", "vlm", "moe", "minicpm"])
     parser.add_argument("--benchmark-json", type=Path, required=True)
     parser.add_argument("--resources-jsonl", type=Path, required=True)
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument(
         "--precision",
         default=None,
-        help="vLLM serving precision used for this run (e.g. bf16, int4); informational, ignored for OVMS",
+        help="Serving precision used for this run (bf16 or int4), supported by both engines",
     )
     args = parser.parse_args()
 

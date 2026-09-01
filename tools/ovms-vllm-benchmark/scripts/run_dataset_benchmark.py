@@ -60,7 +60,7 @@ def ensure_benchmark_script(cache_dir: Path, ref: str) -> Path:
 def dataset_args_for(model_type: str, dataset_cfg: dict) -> list[str]:
     """Build benchmark_serving.py --dataset-name/--dataset-path style args."""
     hf_dataset = dataset_cfg["hf_dataset"]
-    if model_type == "vlm":
+    if model_type in ("vlm", "minicpm"):
         # benchmark_serving.py's "hf" dataset backend supports multimodal
         # (image+prompt) HF datasets such as VQA-style collections.
         return ["--dataset-name", "hf", "--dataset-path", hf_dataset, "--hf-split", dataset_cfg.get("split", "test")]
@@ -71,7 +71,7 @@ def dataset_args_for(model_type: str, dataset_cfg: dict) -> list[str]:
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--base-url", required=True, help="OpenAI-compatible endpoint base URL")
-    parser.add_argument("--model-type", required=True, choices=["llm", "vlm", "moe"])
+    parser.add_argument("--model-type", required=True, choices=["llm", "vlm", "moe", "minicpm"])
     parser.add_argument("--served-model-name", required=True)
     parser.add_argument("--config", type=Path, default=TOOL_ROOT / "config" / "models.yaml")
     parser.add_argument("--output", type=Path, required=True, help="Path to write benchmark_serving.py JSON result")

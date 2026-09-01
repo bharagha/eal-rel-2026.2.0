@@ -52,14 +52,18 @@ GPU utilization for the serving container throughout the run.
 
    You'll be asked:
    - *"Which model serving engine would you like to benchmark?"* → OVMS or vLLM
-   - *"Which preselected model would you like to benchmark?"* → LLM, VLM, or MoE
-   - *(vLLM only)* *"Which precision would you like to serve with vLLM?"* → bf16 or int4 (w4a16)
+   - *"Which preselected model would you like to benchmark?"* → LLM, VLM, MoE, or MiniCPM
+   - *"Which precision would you like to serve?"* → bf16 or int4 (supported
+     by both engines: OVMS int4 uses native OpenVINO IR weight compression;
+     vLLM int4 quantizes the bf16 checkpoint on the fly with torchao)
 
    Or non-interactively:
 
    ```bash
    ./run_benchmark.sh --engine ovms --model-type llm --num-prompts 50
+   ./run_benchmark.sh --engine ovms --model-type llm --precision int4
    ./run_benchmark.sh --engine vllm --model-type llm --precision int4
+   ./run_benchmark.sh --engine vllm --model-type minicpm --precision int4
    ```
 
 4. **Review results**
@@ -81,11 +85,12 @@ GPU utilization for the serving container throughout the run.
 
 - Edit [`config/models.yaml`](../../config/models.yaml) to change the
   preselected Hugging Face model IDs, datasets, or per-engine serving
-  arguments (e.g., `--max-model-len`, weight compression format). For vLLM,
-  serving precision (`bf16`/`int4`) is defined per model under
-  `models.<type>.vllm.precisions.*`, each with its own `hf_repo` and
-  `server_extra_args`; OVMS's `ovms.export_extra_args` (`--weight-format`)
-  is separate and unaffected by the vLLM precision selector.
+  arguments (e.g., `--max-model-len`). Both engines define `bf16` and `int4`
+  per model: OVMS under `models.<type>.ovms.precisions.*` (`--weight-format`
+  export args: `fp16` for bf16, `int4` for int4), and vLLM under
+  `models.<type>.vllm.precisions.*` (`bf16` has an `hf_repo`; `int4` uses
+  `quantization: torchao` and is produced on the fly from the bf16 checkpoint
+  — no separate pre-quantized repo needed).
 - Override `MODELS_DIR`/`RESULTS_DIR` environment variables to relocate the
   local model cache / results output.
 - Pass `--num-prompts` to control benchmark load; pass `--keep` to leave the

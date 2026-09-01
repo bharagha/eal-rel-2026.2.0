@@ -40,14 +40,15 @@ require_cmd() {
 
 # container_name <engine> [precision]
 #
-# Precision suffix is only meaningful for vLLM (OVMS precision is governed
-# solely by the existing ovms.export_extra_args, not by --precision), but the
-# suffix is applied whenever a non-empty precision is passed so that bf16
-# and int4 vLLM runs don't collide on the same container name.
+# Both engines now support bf16/int4 precisions (OVMS via per-precision IR
+# export directories, vLLM via HF repo vs. torchao-converted checkpoint), so
+# the precision suffix is applied for either engine whenever a non-empty
+# precision is passed, keeping bf16 and int4 runs from colliding on the same
+# container name.
 container_name() {
   local engine=$1
   local precision=${2:-}
-  if [[ -n "${precision}" && "${engine}" == "vllm" ]]; then
+  if [[ -n "${precision}" ]]; then
     echo "ovms-vllm-bench-${engine}-${precision}"
   else
     echo "ovms-vllm-bench-${engine}"

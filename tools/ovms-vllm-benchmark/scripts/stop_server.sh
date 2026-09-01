@@ -8,7 +8,7 @@
 #   scripts/stop_server.sh <ovms|vllm> [precision]
 #
 # [precision] must match what was passed to start_server.sh so the correct
-# container name is resolved (only meaningful for vLLM; ignored for OVMS).
+# container name is resolved (applies to both engines now).
 
 set -euo pipefail
 source "$(dirname "${BASH_SOURCE[0]}")/lib/common.sh"

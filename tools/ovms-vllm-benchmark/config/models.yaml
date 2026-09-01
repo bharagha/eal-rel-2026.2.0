@@ -4,12 +4,14 @@
 # Preselected model registry for the OVMS vs vLLM benchmark tool.
 #
 # model_type:
-#   llm  -> text-only chat/instruct model, benchmarked with a ShareGPT-style
-#           text prompt dataset.
-#   vlm  -> vision-language model, benchmarked with an image+prompt (VQA)
-#           dataset.
-#   moe  -> mixture-of-experts text model, benchmarked the same way as `llm`
-#           (large; expect higher memory/VRAM usage on Core Ultra iGPU).
+#   llm     -> text-only chat/instruct model, benchmarked with a ShareGPT-style
+#              text prompt dataset.
+#   vlm     -> vision-language model, benchmarked with an image+prompt (VQA)
+#              dataset.
+#   moe     -> mixture-of-experts text model, benchmarked the same way as `llm`
+#              (large; expect higher memory/VRAM usage on Core Ultra iGPU).
+#   minicpm -> vision-language model (openbmb/MiniCPM-V-4_5), benchmarked the
+#              same way as `vlm` (image+prompt VQA dataset).
 #
 # dataset:
 #   name         -> logical dataset identifier used by run_dataset_benchmark.py
@@ -24,18 +26,34 @@
 #   Placeholders like {model_dir} / {served_model_name} are substituted by
 #   scripts/start_server.sh.
 #
-# vllm.precisions: map of precision name -> { hf_repo, server_extra_args }.
-#   Each precision points at its own Hugging Face repo (a separate
-#   pre-quantized checkpoint for lower precisions, not a runtime quantize
-#   flag applied to the bf16 repo) plus any extra vLLM server args needed to
-#   serve it. vllm.default_precision selects which one is used when
-#   --precision is not passed. This only affects the vLLM serving path;
-#   the ovms: block (weight-format export args) is independent and unrelated
-#   to this selector.
-#   - bf16: full-precision baseline, required for every model entry.
-#   - int4: w4a16 (4-bit weights / 16-bit activations) quantized checkpoint.
-#           Only defined where a quantized repo is available; requesting
-#           --precision int4 for a model without an int4 entry is an error.
+# Precisions are supported symmetrically for both engines: bf16 and int4 are
+# defined for every model, under both `ovms.precisions.*` and
+# `vllm.precisions.*`. `--precision bf16|int4` selects which entry is used for
+# whichever engine is being run; each engine's map is independent (an int4
+# vLLM run and an int4 OVMS run do not share artifacts).
+#
+# ovms.precisions: map of precision name -> { export_extra_args }.
+#   export_extra_args is passed straight through to OVMS's export_model.py.
+#   - bf16: mapped to `--weight-format fp16` (export_model.py has no literal
+#           "bf16" weight-format; fp16 is the closest full-precision option).
+#   - int4: mapped to `--weight-format int4` (native OVMS/OpenVINO int4
+#           weight compression during IR export).
+#   scripts/prepare_model.sh exports each precision to its own directory
+#   (`<served_model_name>-<precision>`) so bf16/int4 IR artifacts coexist.
+#
+# vllm.precisions: map of precision name -> { hf_repo | quantization, server_extra_args }.
+#   vllm.default_precision selects which one is used when --precision is not
+#   passed.
+#   - bf16: full-precision baseline, points at the model's original (bf16)
+#           Hugging Face repo via `hf_repo`. Required for every model entry.
+#   - int4: produced on-the-fly by quantizing the bf16 checkpoint with
+#           torchao (`Int4WeightOnlyConfig`, weight-only int4) via
+#           scripts/convert_torchao.py, rather than pointing at a separate
+#           pre-quantized Hugging Face repo. Marked with `quantization: torchao`
+#           (no `hf_repo` needed here: the bf16 `hf_repo` above is the
+#           conversion source) and `server_extra_args` must include
+#           `--quantization torchao` so vLLM loads the converted checkpoint
+#           correctly.
 
 models:
   llm:
@@ -48,7 +66,11 @@ models:
       hf_dataset: anon8231489123/ShareGPT_Vicuna_unfiltered
       split: train
     ovms:
-      export_extra_args: ["--weight-format", "int8"]
+      precisions:
+        bf16:
+          export_extra_args: ["--weight-format", "fp16"]
+        int4:
+          export_extra_args: ["--weight-format", "int4"]
     vllm:
       default_precision: bf16
       precisions:
@@ -56,10 +78,8 @@ models:
           hf_repo: microsoft/Phi-4-mini-instruct
           server_extra_args: ["--max-model-len", "4096"]
         int4:
-          # TODO: set the actual w4a16 (int4) quantized Hugging Face repo id
-          # for Phi-4-mini-instruct before using --precision int4 with vLLM.
-          hf_repo: "TODO-set-w4a16-quantized-repo-for-phi-4-mini-instruct"
-          server_extra_args: ["--max-model-len", "4096", "--quantization", "compressed-tensors"]
+          quantization: torchao
+          server_extra_args: ["--max-model-len", "4096", "--quantization", "torchao"]
 
   vlm:
     hf_repo: Qwen/Qwen3-VL-8B-Instruct
@@ -71,13 +91,20 @@ models:
       hf_dataset: HuggingFaceM4/ScienceQA
       split: test
     ovms:
-      export_extra_args: ["--weight-format", "int8"]
+      precisions:
+        bf16:
+          export_extra_args: ["--weight-format", "fp16"]
+        int4:
+          export_extra_args: ["--weight-format", "int4"]
     vllm:
       default_precision: bf16
       precisions:
         bf16:
           hf_repo: Qwen/Qwen3-VL-8B-Instruct
           server_extra_args: ["--max-model-len", "8192", "--trust-remote-code"]
+        int4:
+          quantization: torchao
+          server_extra_args: ["--max-model-len", "8192", "--trust-remote-code", "--quantization", "torchao"]
 
   moe:
     hf_repo: google/gemma-4-26B-A4B-it
@@ -89,18 +116,51 @@ models:
       hf_dataset: anon8231489123/ShareGPT_Vicuna_unfiltered
       split: train
     ovms:
-      export_extra_args: ["--weight-format", "int4"]
+      precisions:
+        bf16:
+          export_extra_args: ["--weight-format", "fp16"]
+        int4:
+          export_extra_args: ["--weight-format", "int4"]
     vllm:
       default_precision: bf16
       precisions:
         bf16:
           hf_repo: google/gemma-4-26B-A4B-it
           server_extra_args: ["--max-model-len", "4096", "--trust-remote-code"]
+        int4:
+          quantization: torchao
+          server_extra_args: ["--max-model-len", "4096", "--trust-remote-code", "--quantization", "torchao"]
     notes: >
       Large MoE model. May exceed Intel Core Ultra integrated GPU memory at
-      default settings; consider int4 weight compression (default above) and
-      reduced --max-model-len / batch size. Requires HUGGING_FACE_HUB_TOKEN
-      with access to the gated repo.
+      default settings; consider --precision int4 (torchao weight-only
+      quantization for vLLM, native int4 IR export for OVMS) and reduced
+      --max-model-len / batch size. Requires HUGGING_FACE_HUB_TOKEN with
+      access to the gated repo.
+
+  minicpm:
+    hf_repo: openbmb/MiniCPM-V-4_5
+    model_type: vlm
+    served_model_name: minicpm-v-4_5
+    gated: false
+    dataset:
+      name: vqa
+      hf_dataset: HuggingFaceM4/ScienceQA
+      split: test
+    ovms:
+      precisions:
+        bf16:
+          export_extra_args: ["--weight-format", "fp16"]
+        int4:
+          export_extra_args: ["--weight-format", "int4"]
+    vllm:
+      default_precision: bf16
+      precisions:
+        bf16:
+          hf_repo: openbmb/MiniCPM-V-4_5
+          server_extra_args: ["--max-model-len", "8192", "--trust-remote-code"]
+        int4:
+          quantization: torchao
+          server_extra_args: ["--max-model-len", "8192", "--trust-remote-code", "--quantization", "torchao"]
 
 engines:
   ovms:

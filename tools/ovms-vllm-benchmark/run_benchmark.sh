@@ -5,23 +5,28 @@
 # Interactive entrypoint for the OVMS vs vLLM benchmark tool.
 #
 # Prompts the user to choose a model-serving engine (OVMS or vLLM), a
-# preselected model (LLM / VLM / MoE), and (vLLM only) a serving precision
+# preselected model (LLM / VLM / MoE / MiniCPM), and a serving precision
 # (bf16 / int4), then orchestrates the full flow:
 #   prepare_model -> start_server -> run_dataset_benchmark (+ resource
 #   monitor in the background) -> collect_results -> stop_server.
 #
-# --precision only applies to the vLLM engine (bf16 default, int4 = w4a16
-# quantized checkpoint) and is defined per model in config/models.yaml under
-# models.<type>.vllm.precisions.*. It has no effect on OVMS, which continues
-# to use its own ovms.export_extra_args (--weight-format) independently.
+# --precision now applies to BOTH engines (bf16 default, int4) and is
+# defined per model in config/models.yaml under models.<type>.<engine>.precisions.*.
+#   - vllm: bf16 serves the model's original Hugging Face repo; int4 serves a
+#           torchao-quantized checkpoint produced on the fly by
+#           scripts/convert_torchao.py.
+#   - ovms: bf16/int4 select the --weight-format used by export_model.py
+#           (fp16 / int4 respectively) via models.<type>.ovms.precisions.*.
 #
 # Usage (interactive):
 #   ./run_benchmark.sh
 #
 # Usage (non-interactive):
 #   ./run_benchmark.sh --engine ovms --model-type llm
+#   ./run_benchmark.sh --engine ovms --model-type llm --precision int4
 #   ./run_benchmark.sh --engine vllm --model-type llm --precision int4
 #   ./run_benchmark.sh --engine vllm --model-type vlm --num-prompts 20 --keep
+#   ./run_benchmark.sh --engine vllm --model-type minicpm --precision int4
 
 set -euo pipefail
 source "$(dirname "${BASH_SOURCE[0]}")/scripts/lib/common.sh"
@@ -35,10 +40,10 @@ MONITOR_INTERVAL=2
 
 usage() {
   cat <<EOF
-Usage: $0 [--engine ovms|vllm] [--model-type llm|vlm|moe] [--precision bf16|int4] [--num-prompts N] [--keep]
+Usage: $0 [--engine ovms|vllm] [--model-type llm|vlm|moe|minicpm] [--precision bf16|int4] [--num-prompts N] [--keep]
 
 If --engine/--model-type are omitted, you will be prompted interactively.
-  --precision   vLLM-only serving precision (default: bf16). Ignored for OVMS.
+  --precision   Serving precision (default: bf16), supported by both engines.
   --keep        Leave the server container running after the benchmark completes.
 EOF
 }
@@ -68,48 +73,46 @@ fi
 
 if [[ -z "${MODEL_TYPE}" ]]; then
   echo "Which preselected model would you like to benchmark?"
-  select choice in "LLM (microsoft/Phi-4-mini-instruct)" "VLM (Qwen/Qwen3-VL-8B-Instruct)" "MoE (google/gemma-4-26B-A4B-it)"; do
+  select choice in "LLM (microsoft/Phi-4-mini-instruct)" "VLM (Qwen/Qwen3-VL-8B-Instruct)" "MoE (google/gemma-4-26B-A4B-it)" "MiniCPM (openbmb/MiniCPM-V-4_5)"; do
     case "${REPLY}" in
       1) MODEL_TYPE="llm"; break ;;
       2) MODEL_TYPE="vlm"; break ;;
       3) MODEL_TYPE="moe"; break ;;
-      *) echo "Please choose 1, 2, or 3." ;;
+      4) MODEL_TYPE="minicpm"; break ;;
+      *) echo "Please choose 1, 2, 3, or 4." ;;
     esac
   done
 fi
 
 [[ "${ENGINE}" == "ovms" || "${ENGINE}" == "vllm" ]] || die "invalid --engine: ${ENGINE}"
-[[ "${MODEL_TYPE}" == "llm" || "${MODEL_TYPE}" == "vlm" || "${MODEL_TYPE}" == "moe" ]] || die "invalid --model-type: ${MODEL_TYPE}"
+[[ "${MODEL_TYPE}" == "llm" || "${MODEL_TYPE}" == "vlm" || "${MODEL_TYPE}" == "moe" || "${MODEL_TYPE}" == "minicpm" ]] || die "invalid --model-type: ${MODEL_TYPE}"
+
+if [[ -z "${PRECISION}" ]]; then
+  DEFAULT_PRECISION=$(yaml_get "models.${MODEL_TYPE}.${ENGINE}.default_precision" "bf16")
+  echo "Which precision would you like to serve with ${ENGINE}? [default: ${DEFAULT_PRECISION}]"
+  select choice in "bf16" "int4"; do
+    case "${REPLY}" in
+      1) PRECISION="bf16"; break ;;
+      2) PRECISION="int4"; break ;;
+      "") PRECISION="${DEFAULT_PRECISION}"; break ;;
+      *) echo "Please choose 1 or 2." ;;
+    esac
+  done
+fi
+[[ "${PRECISION}" == "bf16" || "${PRECISION}" == "int4" ]] || die "invalid --precision: ${PRECISION}"
 
 if [[ "${ENGINE}" == "vllm" ]]; then
-  if [[ -z "${PRECISION}" ]]; then
-    DEFAULT_PRECISION=$(yaml_get "models.${MODEL_TYPE}.vllm.default_precision" "bf16")
-    echo "Which precision would you like to serve with vLLM? [default: ${DEFAULT_PRECISION}]"
-    select choice in "bf16" "int4 (w4a16)"; do
-      case "${REPLY}" in
-        1) PRECISION="bf16"; break ;;
-        2) PRECISION="int4"; break ;;
-        "") PRECISION="${DEFAULT_PRECISION}"; break ;;
-        *) echo "Please choose 1 or 2." ;;
-      esac
-    done
-  fi
-  [[ "${PRECISION}" == "bf16" || "${PRECISION}" == "int4" ]] || die "invalid --precision: ${PRECISION}"
-  yaml_get "models.${MODEL_TYPE}.vllm.precisions.${PRECISION}.hf_repo" >/dev/null \
+  yaml_get "models.${MODEL_TYPE}.vllm.precisions.${PRECISION}" >/dev/null 2>&1 \
     || die "no vllm.precisions.${PRECISION} entry defined for model type '${MODEL_TYPE}' in ${CONFIG_FILE}"
 else
-  # Precision selection does not apply to OVMS; keep it unset/inert.
-  PRECISION="bf16"
+  yaml_get "models.${MODEL_TYPE}.ovms.precisions.${PRECISION}" >/dev/null 2>&1 \
+    || die "no ovms.precisions.${PRECISION} entry defined for model type '${MODEL_TYPE}' in ${CONFIG_FILE}"
 fi
 
 NOTES=$(yaml_get "models.${MODEL_TYPE}.notes" "")
 [[ -n "${NOTES}" ]] && log "NOTE: ${NOTES}"
 
-if [[ "${ENGINE}" == "vllm" ]]; then
-  RUN_ID="${ENGINE}_${MODEL_TYPE}_${PRECISION}_$(date -u +%Y%m%dT%H%M%SZ)"
-else
-  RUN_ID="${ENGINE}_${MODEL_TYPE}_$(date -u +%Y%m%dT%H%M%SZ)"
-fi
+RUN_ID="${ENGINE}_${MODEL_TYPE}_${PRECISION}_$(date -u +%Y%m%dT%H%M%SZ)"
 RUN_DIR="${RESULTS_DIR}/${RUN_ID}"
 mkdir -p "${RUN_DIR}"
 log "Run directory: ${RUN_DIR}"
@@ -157,8 +160,7 @@ MONITOR_PID=""
 log "Step 4/4: collecting results"
 COLLECT_ARGS=(--engine "${ENGINE}" --model-type "${MODEL_TYPE}" \
   --benchmark-json "${BENCH_JSON}" --resources-jsonl "${RESOURCES_FILE}" \
-  --output "${RUN_DIR}/summary.json")
-[[ "${ENGINE}" == "vllm" ]] && COLLECT_ARGS+=(--precision "${PRECISION}")
+  --output "${RUN_DIR}/summary.json" --precision "${PRECISION}")
 python3 "${TOOL_ROOT}/scripts/collect_results.py" "${COLLECT_ARGS[@]}"
 
 log "Done. Results saved under: ${RUN_DIR}"
