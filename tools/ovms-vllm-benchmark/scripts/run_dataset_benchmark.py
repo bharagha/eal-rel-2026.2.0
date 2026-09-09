@@ -143,36 +143,18 @@ def dataset_args_for(model_type: str, dataset_cfg: dict, cache_dir: Path) -> lis
     return ["--dataset-name", "sharegpt", "--dataset-path", str(local_path)]
 
 
-def main() -> int:
-    parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--base-url", required=True, help="OpenAI-compatible endpoint base URL")
-    parser.add_argument("--model-type", required=True, choices=["llm", "vlm", "moe"])
-    parser.add_argument("--served-model-name", required=True)
-    parser.add_argument("--config", type=Path, default=TOOL_ROOT / "config" / "models.yaml")
-    parser.add_argument("--output", type=Path, required=True, help="Path to write benchmark_serving.py JSON result")
-    parser.add_argument("--num-prompts", type=int, default=50)
-    parser.add_argument("--bench-script-ref", default=DEFAULT_BENCH_SCRIPT_REF)
-    parser.add_argument(
-        "--extra-arg",
-        action="append",
-        default=[],
-        help="Additional raw arg to pass through to benchmark_serving.py (repeatable)",
-    )
-    args = parser.parse_args()
-
-    config = load_config(args.config)
-    model_cfg = config["models"][args.model_type]
-    dataset_cfg = model_cfg["dataset"]
-    # The served model name (e.g. "phi-4-mini-instruct") is what the endpoint
-    # expects as the request "model", but it is not a resolvable Hugging Face
-    # repo. benchmark_serving.py needs a real tokenizer to count prompt/output
-    # tokens, so point --tokenizer at the source HF repo.
-    hf_repo = model_cfg["hf_repo"]
-
-    cache_dir = TOOL_ROOT / ".bench-tool"
-    bench_script = ensure_benchmark_script(cache_dir, args.bench_script_ref)
-
-    args.output.parent.mkdir(parents=True, exist_ok=True)
+def run_benchmark_serving(
+    args: argparse.Namespace,
+    *,
+    bench_script: Path,
+    hf_repo: str,
+    dataset_cfg: dict,
+    cache_dir: Path,
+    num_prompts: int,
+    output: Path,
+) -> int:
+    """Invoke vLLM's benchmark_serving.py once and validate its JSON output."""
+    output.parent.mkdir(parents=True, exist_ok=True)
 
     cmd = [
         sys.executable,
@@ -189,10 +171,10 @@ def main() -> int:
         hf_repo,
         "--trust-remote-code",
         "--num-prompts",
-        str(args.num_prompts),
+        str(num_prompts),
         "--save-result",
         "--result-filename",
-        str(args.output),
+        str(output),
         *dataset_args_for(args.model_type, dataset_cfg, cache_dir),
         *args.extra_arg,
     ]
@@ -203,14 +185,88 @@ def main() -> int:
         print(f"benchmark_serving.py exited with code {result.returncode}", file=sys.stderr)
         return result.returncode
 
-    if not args.output.exists():
-        print(f"Expected result file not found: {args.output}", file=sys.stderr)
+    if not output.exists():
+        print(f"Expected result file not found: {output}", file=sys.stderr)
         return 1
 
-    with args.output.open("r", encoding="utf-8") as fh:
+    with output.open("r", encoding="utf-8") as fh:
         summary = json.load(fh)
     print(json.dumps({k: summary.get(k) for k in ("mean_ttft_ms", "mean_tpot_ms", "request_throughput") if k in summary}))
     return 0
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--base-url", required=True, help="OpenAI-compatible endpoint base URL")
+    parser.add_argument("--model-type", required=True, choices=["llm", "vlm", "moe"])
+    parser.add_argument("--served-model-name", required=True)
+    parser.add_argument("--config", type=Path, default=TOOL_ROOT / "config" / "models.yaml")
+    parser.add_argument("--output", type=Path, required=True, help="Path to write benchmark_serving.py JSON result")
+    parser.add_argument("--num-prompts", type=int, default=50)
+    parser.add_argument("--warmup-prompts", type=int, default=0, help="Warm-up requests to send before the measured run")
+    parser.add_argument(
+        "--report-dir",
+        type=Path,
+        default=None,
+        help="If set, collect resource metrics with Metrics Manager during the measured run",
+    )
+    parser.add_argument("--bench-script-ref", default=DEFAULT_BENCH_SCRIPT_REF)
+    parser.add_argument(
+        "--extra-arg",
+        action="append",
+        default=[],
+        help="Additional raw arg to pass through to benchmark_serving.py (repeatable)",
+    )
+    args = parser.parse_args()
+
+    if args.num_prompts < 0 or args.warmup_prompts < 0:
+        parser.error("prompt counts must be non-negative")
+
+    config = load_config(args.config)
+    model_cfg = config["models"][args.model_type]
+    dataset_cfg = model_cfg["dataset"]
+    # The served model name (e.g. "phi-4-mini-instruct") is what the endpoint
+    # expects as the request "model", but it is not a resolvable Hugging Face
+    # repo. benchmark_serving.py needs a real tokenizer to count prompt/output
+    # tokens, so point --tokenizer at the source HF repo.
+    hf_repo = model_cfg["hf_repo"]
+
+    cache_dir = TOOL_ROOT / ".bench-tool"
+    bench_script = ensure_benchmark_script(cache_dir, args.bench_script_ref)
+
+    run_kwargs = dict(
+        bench_script=bench_script,
+        hf_repo=hf_repo,
+        dataset_cfg=dataset_cfg,
+        cache_dir=cache_dir,
+    )
+
+    if args.warmup_prompts:
+        print(f"Running {args.warmup_prompts} warm-up requests...", file=sys.stderr)
+        warmup_output = (args.report_dir or args.output.parent) / "warmup_benchmark_serving.json"
+        rc = run_benchmark_serving(
+            args, num_prompts=args.warmup_prompts, output=warmup_output, **run_kwargs
+        )
+        if rc:
+            return rc
+
+    # When a report directory is given, wrap the measured run with Metrics
+    # Manager resource collection and render utilization graphs afterwards.
+    if args.report_dir:
+        from perfomance import plot_graphs, start_perf_tool, stop_perf_tool
+
+        log_dir, container_name = start_perf_tool(None, args.report_dir)
+        try:
+            return run_benchmark_serving(
+                args, num_prompts=args.num_prompts, output=args.output, **run_kwargs
+            )
+        finally:
+            stop_perf_tool(container_name, log_dir)
+            plot_graphs(log_dir)
+
+    return run_benchmark_serving(
+        args, num_prompts=args.num_prompts, output=args.output, **run_kwargs
+    )
 
 
 if __name__ == "__main__":

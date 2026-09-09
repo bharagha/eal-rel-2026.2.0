@@ -35,7 +35,7 @@ models:
       hf_dataset: anon8231489123/ShareGPT_Vicuna_unfiltered
       split: train
     ovms:
-      export_extra_args: ["--weight-format", "int4"]
+      export_extra_args: ["--weight-format", "int8"]
       # Phi-4-mini (phi3) config cannot be loaded by the modern OVMS 2026.3
       # export stack: transformers 5.5's RoPE standardization crashes with
       # `'PreTrainedConfig' object has no attribute 'max_position_embeddings'`.
@@ -49,9 +49,9 @@ models:
       server_extra_args: ["--max-model-len", "4096"]
 
   vlm:
-    hf_repo: Qwen/Qwen3-VL-8B-Instruct
+    hf_repo: openbmb/MiniCPM-V-4_5
     model_type: vlm
-    served_model_name: qwen3-vl-8b-instruct
+    served_model_name: minicpm-v-4_5
     gated: false
     dataset:
       name: vqa
@@ -59,7 +59,7 @@ models:
       subset: vision
       split: test
     ovms:
-      export_extra_args: ["--weight-format", "int8", "--extra_quantization_params=--trust-remote-code"]
+      export_extra_args: ["--weight-format", "int4", "--extra_quantization_params=--trust-remote-code"]
       # MiniCPM-V-4_5's remote code and optimum-intel's MiniCPMV OpenVINO
       # export config require transformers <=4.57.6 (which in turn pins
       # huggingface-hub <1.0). These conflict with the modern OVMS 2026.3
@@ -72,7 +72,7 @@ models:
       server_extra_args: ["--max-model-len", "8192", "--trust-remote-code"]
 
   moe:
-    hf_repo: google/gemma-4-26B-A4B-it
+    hf_repo: OpenVINO/gemma-4-26b-a4b-it-int4-ov
     model_type: moe
     served_model_name: gemma-4-26b-a4b-it
     gated: false

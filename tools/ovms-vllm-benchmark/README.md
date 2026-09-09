@@ -60,6 +60,7 @@ Non-interactive usage:
 
 ```bash
 ./run_benchmark.sh --engine ovms --model-type llm --num-prompts 50
+./run_benchmark.sh --engine vllm --model-type vlm --warmup-prompts 10 --num-prompts 50
 ./run_benchmark.sh --engine vllm --model-type vlm --keep   # leaves the server running afterwards
 ```
 
@@ -71,16 +72,16 @@ Non-interactive usage:
 2. **Start server** (`scripts/start_server.sh`) — launches the chosen image
    via `docker run` with `/dev/dri` GPU passthrough, waits for the
    OpenAI-compatible endpoint to become healthy.
-3. **Benchmark** (`scripts/run_dataset_benchmark.py`) — runs vLLM's official
-   `benchmark_serving.py` against the endpoint using the dataset appropriate
-   for the model type, capturing TTFT, TPOT, ITL, and throughput.
-4. **Monitor resources** (`scripts/monitor_resources.sh`) — samples
-   `docker stats` (CPU/RAM) and `intel_gpu_top`/`xpu-smi` (GPU) in the
-   background throughout the benchmark run.
-5. **Collect results** (`scripts/collect_results.py`) — merges performance
-   and resource metrics into `results/<engine>_<model>_<timestamp>/summary.json`
-   and a human-readable `summary.txt`.
-6. **Cleanup** — stops and removes the server container unless `--keep` is
+3. **Benchmark** (`scripts/run_dataset_benchmark.py`) — optionally sends
+   warm-up requests, then runs vLLM's official `benchmark_serving.py` against
+   the endpoint using the dataset appropriate for the model type, capturing
+   TTFT, TPOT, ITL, and throughput. During the measured run it collects CPU,
+   memory, GPU, and NPU metrics with Metrics Manager and writes a resource
+   utilization graph and CSV summary (temperature is excluded).
+4. **Collect results** (`scripts/collect_results.py`) — writes performance,
+  model name, and weight format into
+  `results/<engine>_<model>_<timestamp>/summary.json` and `summary.txt`.
+5. **Cleanup** — stops and removes the server container unless `--keep` is
    passed, then deactivates and deletes the tool's virtualenv (`venv/`).
 
 ## Results layout
@@ -89,8 +90,12 @@ Non-interactive usage:
 results/
   ovms_llm_20260101T120000Z/
     benchmark_serving.json   # raw vLLM benchmark_serving.py output
-    resources.jsonl          # per-sample docker stats + GPU metrics
-    summary.json             # merged performance + resource summary
+    warmup_benchmark_serving.json # optional warm-up output
+    perf_tool_logs/
+      metrics_stream.log     # Metrics Manager resource samples
+      metrics_summary.csv    # resource utilization statistics
+      resource_utilization.png # CPU, memory, GPU, and NPU graph
+    summary.json             # performance and model metadata
     summary.txt              # human-readable table
 ```
 
@@ -100,9 +105,8 @@ results/
   integrated GPU's memory on Intel Core Ultra at default settings; the
   config defaults to int4 weight compression for OVMS export, but you may
   need to reduce `--max-model-len` further for vLLM.
-- GPU utilization metrics depend on `intel_gpu_top`/`xpu-smi` being
-  available and compatible with your driver stack; if unavailable, only
-  CPU/RAM metrics are captured.
+- Resource metrics depend on the Metrics Manager container being compatible
+  with the host; unavailable metric categories are omitted from the graph.
 - NPU targets are not supported in this version — only the integrated GPU
   (iGPU) is exercised.
 

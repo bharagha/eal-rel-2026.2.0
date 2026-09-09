@@ -11,6 +11,8 @@ tqdm>=4.66
 datasets>=2.18
 transformers>=4.40
 pillow>=10.0
+matplotlib>=3.8
+requests>=2.31
 # MiniCPM-V (and other VLMs) ship remote tokenizer/config code that imports
 # torch when loaded with --trust-remote-code in benchmark_serving.py. Install
 # the CPU wheel; the benchmark client only needs it for tokenization, not GPU.

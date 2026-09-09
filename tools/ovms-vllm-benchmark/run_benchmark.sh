@@ -6,30 +6,31 @@
 #
 # Prompts the user to choose a model-serving engine (OVMS or vLLM) and a
 # preselected model (LLM / VLM / MoE), then orchestrates the full flow:
-#   prepare_model -> start_server -> run_dataset_benchmark (+ resource
-#   monitor in the background) -> collect_results -> stop_server.
+#   prepare_model -> start_server -> run_dataset_benchmark (with warm-up +
+#   resource metrics) -> collect_results -> stop_server.
 #
 # Usage (interactive):
 #   ./run_benchmark.sh
 #
 # Usage (non-interactive):
-#   ./run_benchmark.sh --engine ovms --model-type llm
-#   ./run_benchmark.sh --engine vllm --model-type vlm --num-prompts 20 --keep
+#   ./run_benchmark.sh --engine ovms --model-type llm --warmup-prompts 5
+#   ./run_benchmark.sh --engine vllm --model-type vlm --warmup-prompts 5 --num-prompts 20 --keep
 
 set -euo pipefail
 source "$(dirname "${BASH_SOURCE[0]}")/scripts/lib/common.sh"
 
 ENGINE=""
 MODEL_TYPE=""
-NUM_PROMPTS=50
+NUM_PROMPTS=5
+WARMUP_PROMPTS=0
 KEEP=0
-MONITOR_INTERVAL=2
 
 usage() {
   cat <<EOF
-Usage: $0 [--engine ovms|vllm] [--model-type llm|vlm|moe] [--num-prompts N] [--keep]
+Usage: $0 [--engine ovms|vllm] [--model-type llm|vlm|moe] [--num-prompts N] [--warmup-prompts N] [--keep]
 
 If --engine/--model-type are omitted, you will be prompted interactively.
+  --warmup-prompts N  Send N requests before resource collection and measurement.
   --keep    Leave the server container running after the benchmark completes.
 EOF
 }
@@ -39,6 +40,7 @@ while [[ $# -gt 0 ]]; do
     --engine) ENGINE=$2; shift 2 ;;
     --model-type) MODEL_TYPE=$2; shift 2 ;;
     --num-prompts) NUM_PROMPTS=$2; shift 2 ;;
+    --warmup-prompts) WARMUP_PROMPTS=$2; shift 2 ;;
     --keep) KEEP=1; shift ;;
     -h|--help) usage; exit 0 ;;
     *) die "unknown argument: $1" ;;
@@ -70,6 +72,8 @@ fi
 
 [[ "${ENGINE}" == "ovms" || "${ENGINE}" == "vllm" ]] || die "invalid --engine: ${ENGINE}"
 [[ "${MODEL_TYPE}" == "llm" || "${MODEL_TYPE}" == "vlm" || "${MODEL_TYPE}" == "moe" ]] || die "invalid --model-type: ${MODEL_TYPE}"
+[[ "${NUM_PROMPTS}" =~ ^[0-9]+$ ]] || die "--num-prompts must be a non-negative integer"
+[[ "${WARMUP_PROMPTS}" =~ ^[0-9]+$ ]] || die "--warmup-prompts must be a non-negative integer"
 
 NOTES=$(yaml_get "models.${MODEL_TYPE}.notes" "")
 [[ -n "${NOTES}" ]] && log "NOTE: ${NOTES}"
@@ -80,10 +84,6 @@ mkdir -p "${RUN_DIR}"
 log "Run directory: ${RUN_DIR}"
 
 cleanup() {
-  if [[ -n "${MONITOR_PID:-}" ]] && kill -0 "${MONITOR_PID}" 2>/dev/null; then
-    kill "${MONITOR_PID}" 2>/dev/null || true
-    wait "${MONITOR_PID}" 2>/dev/null || true
-  fi
   if [[ "${KEEP}" -eq 0 ]]; then
     "${TOOL_ROOT}/scripts/stop_server.sh" "${ENGINE}" || true
   fi
@@ -105,34 +105,26 @@ log "Step 2/4: starting ${ENGINE} server"
 BASE_URL=$("${TOOL_ROOT}/scripts/start_server.sh" "${ENGINE}" "${MODEL_TYPE}" | tail -n 1)
 log "Server endpoint: ${BASE_URL}"
 
-CONTAINER=$(container_name "${ENGINE}")
-RESOURCES_FILE="${RUN_DIR}/resources.jsonl"
-"${TOOL_ROOT}/scripts/monitor_resources.sh" "${CONTAINER}" "${RESOURCES_FILE}" "${MONITOR_INTERVAL}" &
-MONITOR_PID=$!
-log "Resource monitor started (pid ${MONITOR_PID})"
-
 SERVED_NAME=$(yaml_get "models.${MODEL_TYPE}.served_model_name")
 BENCH_JSON="${RUN_DIR}/benchmark_serving.json"
 
-log "Step 3/4: running dataset benchmark (num_prompts=${NUM_PROMPTS})"
+log "Step 3/4: warming up and running dataset benchmark (num_prompts=${NUM_PROMPTS})"
 python3 "${TOOL_ROOT}/scripts/run_dataset_benchmark.py" \
   --base-url "${BASE_URL}" \
   --model-type "${MODEL_TYPE}" \
   --served-model-name "${SERVED_NAME}" \
   --config "${CONFIG_FILE}" \
   --output "${BENCH_JSON}" \
-  --num-prompts "${NUM_PROMPTS}"
-
-kill "${MONITOR_PID}" 2>/dev/null || true
-wait "${MONITOR_PID}" 2>/dev/null || true
-MONITOR_PID=""
+  --report-dir "${RUN_DIR}" \
+  --num-prompts "${NUM_PROMPTS}" \
+  --warmup-prompts "${WARMUP_PROMPTS}"
 
 log "Step 4/4: collecting results"
 python3 "${TOOL_ROOT}/scripts/collect_results.py" \
   --engine "${ENGINE}" \
   --model-type "${MODEL_TYPE}" \
   --benchmark-json "${BENCH_JSON}" \
-  --resources-jsonl "${RESOURCES_FILE}" \
+  --config "${CONFIG_FILE}" \
   --output "${RUN_DIR}/summary.json"
 
 log "Done. Results saved under: ${RUN_DIR}"
