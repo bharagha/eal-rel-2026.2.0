@@ -1,6 +1,6 @@
 {
   "skill_name": "vlm-model-selector",
-  "notes": "SPDX-FileCopyrightText: (C) 2026 Intel Corporation; SPDX-License-Identifier: Apache-2.0. These self-contained evaluation prompts are intentionally separate from example-prompts/. Evaluate selection behavior, evidence handling, and safe deployment guidance, not a fixed winning model. Cases marked offline use synthetic fixtures, not claims about actual model releases, licenses, benchmarks, or OpenVINO support. Do not fetch sources, install dependencies, download weights, or execute exports for offline cases. A proposed live lookup is not a completed verification. Live discovery must be tested separately with network access; passing these cases does not establish model accuracy or hardware performance.",
+  "notes": "These self-contained evaluation prompts are intentionally separate from example-prompts/. Evaluate selection behavior, evidence handling, and safe deployment guidance, not a fixed winning model. Cases marked offline use synthetic fixtures, not claims about actual model releases, licenses, benchmarks, or OpenVINO support. Do not fetch sources, install dependencies, download weights, or execute exports for offline cases. A proposed live lookup is not a completed verification. Live discovery must be tested separately with network access; passing these cases does not establish model accuracy or hardware performance.",
   "evals": [
     {
       "id": 1,
